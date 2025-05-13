@@ -19,7 +19,7 @@ fn drop_select_text(selected: bool) -> &'static str {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 enum DiffMethod {
     ByIndex,
     BpeGreedy00,
@@ -59,36 +59,45 @@ impl HexApp {
     }
 
     fn update_diffs(&mut self) {
-        let pattern0 = self.pattern0.lock().unwrap();
-        let pattern1 = self.pattern1.lock().unwrap();
+        let pattern0 = self.pattern0.clone();
+        let pattern1 = self.pattern1.clone();
 
-        //thread::spawn( move || {
-        let (diffs1, diffs2) = if let (Some(pattern0), Some(pattern1)) = (&*pattern0, &*pattern1) {
-            let len = std::cmp::max(pattern0.len(), pattern1.len());
-            match self.diff_method {
-                DiffMethod::ByIndex => diff::get_diffs(pattern0, pattern1, 0..len),
-                DiffMethod::BpeGreedy00 => {
-                    let bpe = Bpe::new(&[pattern0, pattern1]);
+        let diffs0 = self.diffs0.clone();
+        let diffs1 = self.diffs1.clone();
 
-                    let pattern0 = bpe.encode(pattern0);
-                    let pattern1 = bpe.encode(pattern1);
+        let diff_method = self.diff_method;
 
-                    let matches = matcher::greedy00(&pattern0, &pattern1);
-                    test_utils::matches_to_cells(&matches, |x| bpe.decode(x.clone()))
-                }
+        thread::spawn(move || {
+            let pattern0 = pattern0.lock().unwrap();
+            let pattern1 = pattern1.lock().unwrap();
+
+            let (new_diffs0, new_diffs1) =
+                if let (Some(pattern0), Some(pattern1)) = (&*pattern0, &*pattern1) {
+                    let len = std::cmp::max(pattern0.len(), pattern1.len());
+                    match diff_method {
+                        DiffMethod::ByIndex => diff::get_diffs(pattern0, pattern1, 0..len),
+                        DiffMethod::BpeGreedy00 => {
+                            let bpe = Bpe::new(&[pattern0, pattern1]);
+
+                            let pattern0 = bpe.encode(pattern0);
+                            let pattern1 = bpe.encode(pattern1);
+
+                            let matches = matcher::greedy00(&pattern0, &pattern1);
+                            test_utils::matches_to_cells(&matches, |x| bpe.decode(x.clone()))
+                        }
+                    }
+                } else {
+                    (vec![], vec![])
+                };
+            {
+                let mut diffs0 = diffs0.lock().unwrap();
+                *diffs0 = new_diffs0;
             }
-        } else {
-            (vec![], vec![])
-        };
-        {
-            let mut diffs0 = self.diffs0.lock().unwrap();
-            *diffs0 = diffs1;
-        }
-        {
-            let mut diffs1 = self.diffs1.lock().unwrap();
-            *diffs1 = diffs2;
-        }
-        //});
+            {
+                let mut diffs1 = diffs1.lock().unwrap();
+                *diffs1 = new_diffs1;
+            }
+        });
     }
 
     fn add_header_row(&mut self, mut header: TableRow<'_, '_>) {
