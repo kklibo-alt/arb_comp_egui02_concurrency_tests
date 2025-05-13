@@ -29,7 +29,7 @@ pub struct HexApp {
     source_name0: Option<String>,
     source_name1: Option<String>,
     pattern0: Arc<Mutex<Option<Vec<u8>>>>,
-    pattern1: Option<Vec<u8>>,
+    pattern1: Arc<Mutex<Option<Vec<u8>>>>,
     diffs0: Vec<HexCell>,
     diffs1: Vec<HexCell>,
     file_drop_target: WhichFile,
@@ -47,7 +47,7 @@ impl HexApp {
             source_name0: Some("zeroes0".to_string()),
             source_name1: Some("zeroes1".to_string()),
             pattern0: Arc::new(Mutex::new(Some(vec![0; 1000]))),
-            pattern1: Some(vec![0; 1000]),
+            pattern1: Arc::new(Mutex::new(Some(vec![0; 1000]))),
             diffs0: vec![],
             diffs1: vec![],
             file_drop_target: WhichFile::File0,
@@ -60,26 +60,26 @@ impl HexApp {
 
     fn update_diffs(&mut self) {
         let pattern0 = self.pattern0.lock().unwrap();
+        let pattern1 = self.pattern1.lock().unwrap();
 
         //thread::spawn( move || {
-        let (diffs1, diffs2) =
-            if let (Some(pattern0), Some(pattern1)) = (&*pattern0, &self.pattern1) {
-                let len = std::cmp::max(pattern0.len(), pattern1.len());
-                match self.diff_method {
-                    DiffMethod::ByIndex => diff::get_diffs(pattern0, pattern1, 0..len),
-                    DiffMethod::BpeGreedy00 => {
-                        let bpe = Bpe::new(&[pattern0, pattern1]);
+        let (diffs1, diffs2) = if let (Some(pattern0), Some(pattern1)) = (&*pattern0, &*pattern1) {
+            let len = std::cmp::max(pattern0.len(), pattern1.len());
+            match self.diff_method {
+                DiffMethod::ByIndex => diff::get_diffs(pattern0, pattern1, 0..len),
+                DiffMethod::BpeGreedy00 => {
+                    let bpe = Bpe::new(&[pattern0, pattern1]);
 
-                        let pattern0 = bpe.encode(pattern0);
-                        let pattern1 = bpe.encode(pattern1);
+                    let pattern0 = bpe.encode(pattern0);
+                    let pattern1 = bpe.encode(pattern1);
 
-                        let matches = matcher::greedy00(&pattern0, &pattern1);
-                        test_utils::matches_to_cells(&matches, |x| bpe.decode(x.clone()))
-                    }
+                    let matches = matcher::greedy00(&pattern0, &pattern1);
+                    test_utils::matches_to_cells(&matches, |x| bpe.decode(x.clone()))
                 }
-            } else {
-                (vec![], vec![])
-            };
+            }
+        } else {
+            (vec![], vec![])
+        };
         self.diffs0 = diffs1;
         self.diffs1 = diffs2;
         //});
@@ -118,7 +118,10 @@ impl HexApp {
                     ui.selectable_value(&mut self.file_drop_target, WhichFile::File1, text)
                         .highlight();
                     if ui.button("randomize").clicked() {
-                        self.pattern1 = Some(random_pattern());
+                        {
+                            let mut pattern1 = self.pattern1.lock().unwrap();
+                            *pattern1 = Some(random_pattern());
+                        }
                         self.source_name1 = Some("random".to_string());
                         self.update_diffs();
                     }
@@ -241,9 +244,12 @@ impl eframe::App for HexApp {
                         }
                         WhichFile::File1 => {
                             self.source_name1 = Some(path.to_string_lossy().to_string());
-                            self.pattern1 = std::fs::read(path).ok();
-                            if self.pattern1.is_none() {
-                                log::error!("failed to read file: {:?}", path);
+                            {
+                                let mut pattern1 = self.pattern1.lock().unwrap();
+                                *pattern1 = std::fs::read(path).ok();
+                                if pattern1.is_none() {
+                                    log::error!("failed to read file: {:?}", path);
+                                }
                             }
                         }
                     }
@@ -259,7 +265,10 @@ impl eframe::App for HexApp {
                             self.source_name0 = Some(dropped_file.name.clone());
                         }
                         WhichFile::File1 => {
-                            self.pattern1 = Some(bytes.to_vec());
+                            {
+                                let mut pattern1 = self.pattern1.lock().unwrap();
+                                *pattern1 = Some(bytes.to_vec());
+                            }
                             self.source_name1 = Some(dropped_file.name.clone());
                         }
                     }
