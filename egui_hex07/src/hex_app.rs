@@ -30,8 +30,8 @@ pub struct HexApp {
     source_name1: Option<String>,
     pattern0: Arc<Mutex<Option<Vec<u8>>>>,
     pattern1: Arc<Mutex<Option<Vec<u8>>>>,
-    diffs0: Vec<HexCell>,
-    diffs1: Vec<HexCell>,
+    diffs0: Arc<Mutex<Vec<HexCell>>>,
+    diffs1: Arc<Mutex<Vec<HexCell>>>,
     file_drop_target: WhichFile,
     diff_method: DiffMethod,
 }
@@ -48,8 +48,8 @@ impl HexApp {
             source_name1: Some("zeroes1".to_string()),
             pattern0: Arc::new(Mutex::new(Some(vec![0; 1000]))),
             pattern1: Arc::new(Mutex::new(Some(vec![0; 1000]))),
-            diffs0: vec![],
-            diffs1: vec![],
+            diffs0: Arc::new(Mutex::new(vec![])),
+            diffs1: Arc::new(Mutex::new(vec![])),
             file_drop_target: WhichFile::File0,
             diff_method: DiffMethod::ByIndex,
         };
@@ -80,8 +80,14 @@ impl HexApp {
         } else {
             (vec![], vec![])
         };
-        self.diffs0 = diffs1;
-        self.diffs1 = diffs2;
+        {
+            let mut diffs0 = self.diffs0.lock().unwrap();
+            *diffs0 = diffs1;
+        }
+        {
+            let mut diffs1 = self.diffs1.lock().unwrap();
+            *diffs1 = diffs2;
+        }
         //});
     }
 
@@ -152,10 +158,13 @@ impl HexApp {
             )
         }
 
+        let diffs0 = self.diffs0.lock().unwrap();
+        let diffs1 = self.diffs1.lock().unwrap();
+
         let hex_grid_width = 16;
 
         let row_height = 18.0;
-        let num_rows = 1 + std::cmp::max(self.diffs0.len(), self.diffs1.len()) / hex_grid_width;
+        let num_rows = 1 + std::cmp::max(diffs0.len(), diffs1.len()) / hex_grid_width;
 
         body.rows(row_height, num_rows, |mut row| {
             let row_index = row.index();
@@ -217,10 +226,10 @@ impl HexApp {
             row.col(|ui| {
                 ui.label(RichText::new(format!("{:08X}", row_index * hex_grid_width)).monospace());
             });
-            row.col(|ui| add_hex_row(ui, &self.diffs0));
-            row.col(|ui| add_ascii_row(ui, &self.diffs0));
-            row.col(|ui| add_hex_row(ui, &self.diffs1));
-            row.col(|ui| add_ascii_row(ui, &self.diffs1));
+            row.col(|ui| add_hex_row(ui, &diffs0));
+            row.col(|ui| add_ascii_row(ui, &diffs0));
+            row.col(|ui| add_hex_row(ui, &diffs1));
+            row.col(|ui| add_ascii_row(ui, &diffs1));
         });
     }
 }
