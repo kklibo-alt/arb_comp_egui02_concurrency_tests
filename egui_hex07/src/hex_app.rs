@@ -34,11 +34,12 @@ pub struct HexApp {
     diffs1: Arc<Mutex<Vec<HexCell>>>,
     file_drop_target: WhichFile,
     diff_method: DiffMethod,
+    update_diffs_handle: Option<thread::JoinHandle<()>>,
 }
 
 fn random_pattern() -> Vec<u8> {
     let mut rng = rand::thread_rng();
-    (0..1000).map(|_| rng.gen_range(0..=255)).collect()
+    (0..2000).map(|_| rng.gen_range(0..=255)).collect()
 }
 
 impl HexApp {
@@ -52,6 +53,7 @@ impl HexApp {
             diffs1: Arc::new(Mutex::new(vec![])),
             file_drop_target: WhichFile::File0,
             diff_method: DiffMethod::ByIndex,
+            update_diffs_handle: None,
         };
 
         result.update_diffs();
@@ -59,6 +61,16 @@ impl HexApp {
     }
 
     fn update_diffs(&mut self) {
+        if self.update_diffs_handle.is_some() {
+            if let Some(handle) = self.update_diffs_handle.take_if(|x| x.is_finished()) {
+                handle.join().unwrap();
+                log::info!("update_diffs handle joined");
+            } else {
+                log::info!("update_diffs handle is not finished");
+                return;
+            }
+        }
+
         let pattern0 = self.pattern0.clone();
         let pattern1 = self.pattern1.clone();
 
@@ -67,7 +79,7 @@ impl HexApp {
 
         let diff_method = self.diff_method;
 
-        thread::spawn(move || {
+        self.update_diffs_handle = Some(thread::spawn(move || {
             let pattern0 = pattern0.lock().unwrap();
             let pattern1 = pattern1.lock().unwrap();
 
@@ -89,6 +101,7 @@ impl HexApp {
                 } else {
                     (vec![], vec![])
                 };
+            log::info!("started updating diffs");   
             {
                 let mut diffs0 = diffs0.lock().unwrap();
                 *diffs0 = new_diffs0;
@@ -97,7 +110,8 @@ impl HexApp {
                 let mut diffs1 = diffs1.lock().unwrap();
                 *diffs1 = new_diffs1;
             }
-        });
+            log::info!("finished updating diffs");
+        }));
     }
 
     fn add_header_row(&mut self, mut header: TableRow<'_, '_>) {
