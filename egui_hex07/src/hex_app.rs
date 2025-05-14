@@ -1,6 +1,6 @@
 use crate::diff::{self, HexCell};
 use arb_comp06::{bpe::Bpe, matcher, test_utils};
-use egui::{Color32, RichText, Ui};
+use egui::{Color32, Context, RichText, Ui};
 use egui_extras::{Column, TableBody, TableBuilder, TableRow};
 use rand::Rng;
 use std::sync::{Arc, Mutex};
@@ -35,6 +35,7 @@ pub struct HexApp {
     file_drop_target: WhichFile,
     diff_method: DiffMethod,
     update_diffs_handle: Option<thread::JoinHandle<()>>,
+    egui_context: Context,
 }
 
 fn random_pattern() -> Vec<u8> {
@@ -43,7 +44,7 @@ fn random_pattern() -> Vec<u8> {
 }
 
 impl HexApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut result = Self {
             source_name0: Some("zeroes0".to_string()),
             source_name1: Some("zeroes1".to_string()),
@@ -54,6 +55,7 @@ impl HexApp {
             file_drop_target: WhichFile::File0,
             diff_method: DiffMethod::ByIndex,
             update_diffs_handle: None,
+            egui_context: cc.egui_ctx.clone(),
         };
 
         result.update_diffs();
@@ -78,6 +80,7 @@ impl HexApp {
         let diffs1 = self.diffs1.clone();
 
         let diff_method = self.diff_method;
+        let egui_context = self.egui_context.clone();
 
         self.update_diffs_handle = Some(thread::spawn(move || {
             let pattern0 = pattern0.lock().unwrap();
@@ -101,7 +104,7 @@ impl HexApp {
                 } else {
                     (vec![], vec![])
                 };
-            log::info!("started updating diffs");   
+            log::info!("started updating diffs");
             {
                 let mut diffs0 = diffs0.lock().unwrap();
                 *diffs0 = new_diffs0;
@@ -111,6 +114,7 @@ impl HexApp {
                 *diffs1 = new_diffs1;
             }
             log::info!("finished updating diffs");
+            egui_context.request_repaint();
         }));
     }
 
