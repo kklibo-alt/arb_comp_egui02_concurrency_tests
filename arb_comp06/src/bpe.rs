@@ -22,6 +22,10 @@ impl Bpe {
     }
 
     pub fn new(data: &[&[u8]]) -> Self {
+        Self::new_with_id_fn(data, None::<fn(usize)>)
+    }
+
+    pub fn new_with_id_fn(data: &[&[u8]], new_id_callback: Option<impl Fn(usize)>) -> Self {
         let mut bpe = Self {
             ids_to_tokens: IndexMap::new(),
             tokens_to_ids: IndexMap::new(),
@@ -34,6 +38,9 @@ impl Bpe {
         while let Some(((id0, id1), _count)) = find_most_common_duplicate_id_pair(patterns.iter()) {
             let new_id = bpe.ids_to_tokens.len();
             bpe.add_id(TokenId(new_id), Token::Merge(id0, id1));
+            if let Some(ref f) = new_id_callback {
+                f(new_id);
+            }
 
             let merge_if = |current_id, next_id| {
                 if current_id == id0 && next_id == id1 {

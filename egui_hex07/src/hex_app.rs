@@ -86,24 +86,26 @@ impl HexApp {
             let pattern0 = pattern0.lock().unwrap();
             let pattern1 = pattern1.lock().unwrap();
 
-            let (new_diffs0, new_diffs1) =
-                if let (Some(pattern0), Some(pattern1)) = (&*pattern0, &*pattern1) {
-                    let len = std::cmp::max(pattern0.len(), pattern1.len());
-                    match diff_method {
-                        DiffMethod::ByIndex => diff::get_diffs(pattern0, pattern1, 0..len),
-                        DiffMethod::BpeGreedy00 => {
-                            let bpe = Bpe::new(&[pattern0, pattern1]);
+            let (new_diffs0, new_diffs1) = if let (Some(pattern0), Some(pattern1)) =
+                (&*pattern0, &*pattern1)
+            {
+                let len = std::cmp::max(pattern0.len(), pattern1.len());
+                match diff_method {
+                    DiffMethod::ByIndex => diff::get_diffs(pattern0, pattern1, 0..len),
+                    DiffMethod::BpeGreedy00 => {
+                        let bpe =
+                            Bpe::new_with_id_fn(&[pattern0, pattern1], Some(|x| println!("{x}")));
 
-                            let pattern0 = bpe.encode(pattern0);
-                            let pattern1 = bpe.encode(pattern1);
+                        let pattern0 = bpe.encode(pattern0);
+                        let pattern1 = bpe.encode(pattern1);
 
-                            let matches = matcher::greedy00(&pattern0, &pattern1);
-                            test_utils::matches_to_cells(&matches, |x| bpe.decode(x.clone()))
-                        }
+                        let matches = matcher::greedy00(&pattern0, &pattern1);
+                        test_utils::matches_to_cells(&matches, |x| bpe.decode(x.clone()))
                     }
-                } else {
-                    (vec![], vec![])
-                };
+                }
+            } else {
+                (vec![], vec![])
+            };
             log::info!("started updating diffs");
             {
                 let mut diffs0 = diffs0.lock().unwrap();
