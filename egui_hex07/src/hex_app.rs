@@ -3,7 +3,7 @@ use arb_comp06::{bpe::Bpe, matcher, test_utils};
 use egui::{Color32, Context, RichText, Ui};
 use egui_extras::{Column, TableBody, TableBuilder, TableRow};
 use rand::Rng;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
 #[derive(Debug, PartialEq)]
@@ -35,6 +35,7 @@ pub struct HexApp {
     file_drop_target: WhichFile,
     diff_method: DiffMethod,
     update_diffs_handle: Option<thread::JoinHandle<()>>,
+    update_new_id_rx: Option<mpsc::Receiver<usize>>,
     egui_context: Context,
 }
 
@@ -56,6 +57,7 @@ impl HexApp {
             diff_method: DiffMethod::ByIndex,
             update_diffs_handle: None,
             egui_context: cc.egui_ctx.clone(),
+            update_new_id_rx: None,
         };
 
         result.update_diffs();
@@ -82,30 +84,36 @@ impl HexApp {
         let diff_method = self.diff_method;
         let egui_context = self.egui_context.clone();
 
+        let (tx, rx) = mpsc::channel::<usize>();
+        self.update_new_id_rx = Some(rx);
+
         self.update_diffs_handle = Some(thread::spawn(move || {
             let pattern0 = pattern0.lock().unwrap();
             let pattern1 = pattern1.lock().unwrap();
 
-            let (new_diffs0, new_diffs1) = if let (Some(pattern0), Some(pattern1)) =
-                (&*pattern0, &*pattern1)
-            {
-                let len = std::cmp::max(pattern0.len(), pattern1.len());
-                match diff_method {
-                    DiffMethod::ByIndex => diff::get_diffs(pattern0, pattern1, 0..len),
-                    DiffMethod::BpeGreedy00 => {
-                        let bpe =
-                            Bpe::new_with_id_fn(&[pattern0, pattern1], Some(|x| println!("{x}")));
+            let (new_diffs0, new_diffs1) =
+                if let (Some(pattern0), Some(pattern1)) = (&*pattern0, &*pattern1) {
+                    let len = std::cmp::max(pattern0.len(), pattern1.len());
+                    match diff_method {
+                        DiffMethod::ByIndex => diff::get_diffs(pattern0, pattern1, 0..len),
+                        DiffMethod::BpeGreedy00 => {
+                            let f = |x| {
+                                tx.send(x).unwrap();
+                                egui_context.request_repaint();
+                            };
 
-                        let pattern0 = bpe.encode(pattern0);
-                        let pattern1 = bpe.encode(pattern1);
+                            let bpe = Bpe::new_with_id_fn(&[pattern0, pattern1], Some(f));
 
-                        let matches = matcher::greedy00(&pattern0, &pattern1);
-                        test_utils::matches_to_cells(&matches, |x| bpe.decode(x.clone()))
+                            let pattern0 = bpe.encode(pattern0);
+                            let pattern1 = bpe.encode(pattern1);
+
+                            let matches = matcher::greedy00(&pattern0, &pattern1);
+                            test_utils::matches_to_cells(&matches, |x| bpe.decode(x.clone()))
+                        }
                     }
-                }
-            } else {
-                (vec![], vec![])
-            };
+                } else {
+                    (vec![], vec![])
+                };
             log::info!("started updating diffs");
             {
                 let mut diffs0 = diffs0.lock().unwrap();
@@ -265,6 +273,12 @@ impl HexApp {
 
 impl eframe::App for HexApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(rx) = &mut self.update_new_id_rx {
+            for x in rx.try_iter() {
+                println!("{x}");
+            }
+        }
+
         ctx.input(|i| {
             if let Some(dropped_file) = i.raw.dropped_files.first() {
                 // This should only be Some when running as a native app.
