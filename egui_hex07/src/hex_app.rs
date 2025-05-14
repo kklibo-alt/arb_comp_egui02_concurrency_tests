@@ -273,9 +273,11 @@ impl HexApp {
 
 impl eframe::App for HexApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let mut new_id = None;
         if let Some(rx) = &mut self.update_new_id_rx {
             for x in rx.try_iter() {
-                println!("{x}");
+                //println!("{x}");
+                new_id = Some(x);
             }
         }
 
@@ -348,6 +350,9 @@ impl eframe::App for HexApp {
                 {
                     self.update_diffs();
                 }
+
+                //display the new id
+                ui.label(RichText::new(format!("new id: {new_id:?}")));
             });
 
             TableBuilder::new(ui)
