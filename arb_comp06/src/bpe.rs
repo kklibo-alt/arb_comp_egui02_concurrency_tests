@@ -2,18 +2,17 @@ use crate::recode::{condense, expand, to_bytes, to_ids};
 use crate::token::{find_most_common_duplicate_id_pair, merge, Token, TokenId};
 use indexmap::IndexMap;
 
-pub struct Bpe<'a> {
+pub struct Bpe {
     ids_to_tokens: IndexMap<TokenId, Token>,
     tokens_to_ids: IndexMap<Token, TokenId>,
-    init_in_progress: Option<InitInProgress<'a>>,
+    init_in_progress: Option<InitInProgress>,
 }
 
-pub struct InitInProgress<'a> {
-    data: &'a [&'a [u8]],
+pub struct InitInProgress {
     patterns: Vec<Vec<TokenId>>,
 }
 
-impl<'a> Bpe<'a> {
+impl Bpe {
     fn add_id(&mut self, id: TokenId, token: Token) {
         self.ids_to_tokens.insert(id, token);
         self.tokens_to_ids.insert(token, id);
@@ -27,12 +26,13 @@ impl<'a> Bpe<'a> {
         &self.tokens_to_ids
     }
 
-    pub fn new(data: &'a [&'a [u8]]) -> Self {
+    pub fn new(data: &[&[u8]]) -> Self {
         let bpe = Self::new_iterative(data);
+
         bpe
     }
 
-    pub fn new_iterative(data: &'a [&'a [u8]]) -> Self {
+    pub fn new_iterative(data: &[&[u8]]) -> Self {
         let mut bpe = Self {
             ids_to_tokens: IndexMap::new(),
             tokens_to_ids: IndexMap::new(),
@@ -43,7 +43,7 @@ impl<'a> Bpe<'a> {
 
         let patterns = data.iter().map(|x| bpe.encode(x)).collect::<Vec<_>>();
 
-        bpe.init_in_progress = Some(InitInProgress { data, patterns });
+        bpe.init_in_progress = Some(InitInProgress { patterns });
         bpe
     }
 
