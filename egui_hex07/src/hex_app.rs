@@ -41,7 +41,7 @@ pub struct HexApp {
 
 fn random_pattern() -> Vec<u8> {
     let mut rng = rand::thread_rng();
-    (0..2000).map(|_| rng.gen_range(0..=255)).collect()
+    (0..4000).map(|_| rng.gen_range(0..=255)).collect()
 }
 
 impl HexApp {
@@ -101,9 +101,12 @@ impl HexApp {
                                 tx.send(x).unwrap();
                                 egui_context.request_repaint();
                             };
-
-                            //let bpe = Bpe::new_with_id_fn(&[pattern0, pattern1], Some(f));
-                            let bpe = Bpe::new(&[pattern0, pattern1]);
+                            println!("starting new_iterative");
+                            let mut bpe = Bpe::new_iterative(&[pattern0, pattern1]);
+                            println!("finished new_iterative");
+                            while bpe.init_in_progress.is_some() {
+                                bpe.init_step(Some(f));
+                            }
 
                             let pattern0 = bpe.encode(pattern0);
                             let pattern1 = bpe.encode(pattern1);

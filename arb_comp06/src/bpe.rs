@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 pub struct Bpe {
     ids_to_tokens: IndexMap<TokenId, Token>,
     tokens_to_ids: IndexMap<Token, TokenId>,
-    init_in_progress: Option<InitInProgress>,
+    pub init_in_progress: Option<InitInProgress>,
 }
 
 pub struct InitInProgress {
