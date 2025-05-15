@@ -27,7 +27,11 @@ impl Bpe {
     }
 
     pub fn new(data: &[&[u8]]) -> Self {
-        let bpe = Self::new_iterative(data);
+        let mut bpe = Self::new_iterative(data);
+
+        while bpe.init_in_progress.is_some() {
+            bpe.init_step(None::<fn(usize)>);
+        }
 
         bpe
     }
