@@ -102,7 +102,8 @@ impl HexApp {
                                 egui_context.request_repaint();
                             };
 
-                            let bpe = Bpe::new_with_id_fn(&[pattern0, pattern1], Some(f));
+                            //let bpe = Bpe::new_with_id_fn(&[pattern0, pattern1], Some(f));
+                            let bpe = Bpe::new(&[pattern0, pattern1]);
 
                             let pattern0 = bpe.encode(pattern0);
                             let pattern1 = bpe.encode(pattern1);

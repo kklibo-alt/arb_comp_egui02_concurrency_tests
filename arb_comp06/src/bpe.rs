@@ -2,12 +2,18 @@ use crate::recode::{condense, expand, to_bytes, to_ids};
 use crate::token::{find_most_common_duplicate_id_pair, merge, Token, TokenId};
 use indexmap::IndexMap;
 
-pub struct Bpe {
+pub struct Bpe<'a> {
     ids_to_tokens: IndexMap<TokenId, Token>,
     tokens_to_ids: IndexMap<Token, TokenId>,
+    init_in_progress: Option<InitInProgress<'a>>,
 }
 
-impl Bpe {
+pub struct InitInProgress<'a> {
+    data: &'a [&'a [u8]],
+    patterns: Vec<Vec<TokenId>>,
+}
+
+impl<'a> Bpe<'a> {
     fn add_id(&mut self, id: TokenId, token: Token) {
         self.ids_to_tokens.insert(id, token);
         self.tokens_to_ids.insert(token, id);
@@ -22,13 +28,15 @@ impl Bpe {
     }
 
     pub fn new(data: &[&[u8]]) -> Self {
-        Self::new_with_id_fn(data, None::<fn(usize)>)
+        let bpe = Self::new_with_id_fn(data, None::<fn(usize)>);
+        bpe
     }
 
     pub fn new_with_id_fn(data: &[&[u8]], new_id_callback: Option<impl Fn(usize)>) -> Self {
         let mut bpe = Self {
             ids_to_tokens: IndexMap::new(),
             tokens_to_ids: IndexMap::new(),
+            init_in_progress: None,
         };
 
         (0..=u8::MAX).for_each(|x| bpe.add_id(TokenId(x as usize), Token::Byte(x)));
