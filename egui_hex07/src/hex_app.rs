@@ -5,7 +5,8 @@ use egui_extras::{Column, TableBody, TableBuilder, TableRow};
 use rand::Rng;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use rayon::prelude::*;
+use rayon::{prelude::*, yield_local, };
+use std::thread::yield_now;
 
 #[derive(Debug, PartialEq)]
 enum WhichFile {
@@ -108,6 +109,8 @@ impl HexApp {
                             println!("finished new_iterative");
                             while bpe.init_in_progress.is_some() {
                                 bpe.init_step(Some(f));
+                                //thread::yield_now();
+                                
                             }
 
                             let pattern0 = bpe.encode(pattern0);
@@ -133,6 +136,8 @@ impl HexApp {
             egui_context.request_repaint();
         //}));
         });
+
+        rayon::yield_now();
     }
 
     fn add_header_row(&mut self, mut header: TableRow<'_, '_>) {
