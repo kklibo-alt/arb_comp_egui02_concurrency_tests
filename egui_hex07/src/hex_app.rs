@@ -2,6 +2,7 @@ use crate::diff::{self, HexCell};
 use arb_comp06::{bpe::Bpe, matcher, test_utils};
 use egui::{Color32, Context, RichText, Ui};
 use egui_extras::{Column, TableBody, TableBuilder, TableRow};
+use poll_promise::Promise;
 use rand::Rng;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -37,6 +38,7 @@ pub struct HexApp {
     update_diffs_handle: Option<thread::JoinHandle<()>>,
     update_new_id_rx: Option<mpsc::Receiver<usize>>,
     egui_context: Context,
+    promise: Option<Promise<()>>,
 }
 
 fn random_pattern() -> Vec<u8> {
@@ -58,6 +60,7 @@ impl HexApp {
             update_diffs_handle: None,
             egui_context: cc.egui_ctx.clone(),
             update_new_id_rx: None,
+            promise: None,
         };
 
         result.update_diffs();
@@ -87,7 +90,17 @@ impl HexApp {
         let (tx, rx) = mpsc::channel::<usize>();
         self.update_new_id_rx = Some(rx);
 
-        self.update_diffs_handle = Some(thread::spawn(move || {
+        if self.promise.is_none() {
+            self.promise = Some(Promise::spawn_local(async move {}));
+        }
+        if let Some(ref p) = self.promise {
+            log::info!("yes");
+            if let Some(result) = p.ready() {
+                log::info!("ready");
+            }
+        }
+
+        /*self.update_diffs_handle = Some(thread::spawn(move || {
             let pattern0 = pattern0.lock().unwrap();
             let pattern1 = pattern1.lock().unwrap();
 
@@ -129,7 +142,7 @@ impl HexApp {
             }
             log::info!("finished updating diffs");
             egui_context.request_repaint();
-        }));
+        }));*/
     }
 
     fn add_header_row(&mut self, mut header: TableRow<'_, '_>) {
