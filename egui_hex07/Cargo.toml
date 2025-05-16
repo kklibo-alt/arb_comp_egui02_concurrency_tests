@@ -27,6 +27,7 @@ serde = { version = "1", features = ["derive"] }
 egui_extras = "0.27.2"
 rand = "0.8.5"
 getrandom = { version = "0.2.15", features = ["js"] }
+poll-promise = { version = "0.3.0", features = ["web"] }
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
