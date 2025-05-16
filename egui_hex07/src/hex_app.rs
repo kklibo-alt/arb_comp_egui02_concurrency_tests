@@ -91,7 +91,12 @@ impl HexApp {
         self.update_new_id_rx = Some(rx);
 
         if self.promise.is_none() {
-            self.promise = Some(Promise::spawn_local(async move {}));
+            self.promise = Some(Promise::spawn_local(async move {
+                while (true) {
+                    gloo_timers::future::sleep(std::time::Duration::from_millis(1)).await;
+                    log::info!("async task"); //this is logged many times
+                }
+            }));
         }
         if let Some(ref p) = self.promise {
             log::info!("yes");
