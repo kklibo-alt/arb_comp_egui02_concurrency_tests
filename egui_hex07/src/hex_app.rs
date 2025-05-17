@@ -93,15 +93,19 @@ impl HexApp {
         if self.promise.is_none() {
             self.promise = Some(Promise::spawn_local(async move {
                 while (true) {
-                    gloo_timers::future::sleep(std::time::Duration::from_millis(1)).await;
-                    log::info!("async task"); //this is logged many times
+                    gloo_timers::future::sleep(std::time::Duration::from_millis(100)).await;
+
+                    log::info!("async task");
+                    break;
                 }
             }));
         }
-        if let Some(ref p) = self.promise {
+        if let Some(p) = self.promise.take() {
             log::info!("yes");
             if let Some(result) = p.ready() {
                 log::info!("ready");
+            } else {
+                self.promise = Some(p);
             }
         }
 
