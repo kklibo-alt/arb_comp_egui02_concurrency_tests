@@ -93,9 +93,24 @@ impl HexApp {
         if self.promise.is_none() {
             self.promise = Some(Promise::spawn_local(async move {
                 while (true) {
-                    gloo_timers::future::sleep(std::time::Duration::from_millis(100)).await;
 
-                    log::info!("async task");
+
+                    log::info!("async task pre");
+                    //gloo_timers::future::sleep(std::time::Duration::from_millis(3000)).await;
+
+                    fn f() {
+                        let mut x = 0u32;
+                        while x < 100000000 {
+                            x+=1;
+                        }
+                        log::info!("x: {x}");
+                    }
+
+                    f();
+                    //std::hint::black_box(f);
+                    
+
+                    log::info!("async task post");
                     break;
                 }
             }));
