@@ -4,9 +4,7 @@ use egui::{Color32, Context, RichText, Ui};
 use egui_extras::{Column, TableBody, TableBuilder, TableRow};
 use rand::Rng;
 use std::sync::{mpsc, Arc, Mutex};
-use std::thread;
-use rayon::{prelude::*, yield_local, };
-use std::thread::yield_now;
+use rayon::prelude::*;
 
 #[derive(Debug, PartialEq)]
 enum WhichFile {
