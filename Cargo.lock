@@ -987,6 +987,7 @@ dependencies = [
  "env_logger",
  "getrandom",
  "log",
+ "parking_lot",
  "rand",
  "rayon",
  "serde",
