@@ -30,6 +30,7 @@ getrandom = { version = "0.2.15", features = ["js"] }
 rayon = "1.10.0"
 wasm-bindgen = "0.2.100"
 wasm-bindgen-rayon = { version = "1.3.0", features = ["no-bundler"] }
+web-sys = { version = "*", features = ["WorkerGlobalScope"] }
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
