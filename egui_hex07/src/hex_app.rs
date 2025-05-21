@@ -2,6 +2,7 @@ use crate::diff::{self, HexCell};
 use arb_comp06::{bpe::Bpe, matcher, test_utils};
 use egui::{Color32, Context, RichText, Ui};
 use egui_extras::{Column, TableBody, TableBuilder, TableRow};
+use futures::StreamExt as _;
 use rand::Rng;
 use std::sync::{mpsc, Arc, Mutex};
 
@@ -49,6 +50,16 @@ impl HexApp {
         cc: &eframe::CreationContext<'_>,
         refresh_egui_tx: futures_channel::mpsc::UnboundedSender<()>,
     ) -> Self {
+        let (refresh_egui_tx, mut refresh_egui_rx) = futures_channel::mpsc::unbounded::<()>();
+        let egui_ctx = cc.egui_ctx.clone();
+
+        wasm_bindgen_futures::spawn_local(async move {
+            while let Some(()) = refresh_egui_rx.next().await {
+                //log::info!("loop2");
+                egui_ctx.request_repaint();
+            }
+        });
+
         let mut result = Self {
             source_name0: Some("zeroes0".to_string()),
             source_name1: Some("zeroes1".to_string()),
