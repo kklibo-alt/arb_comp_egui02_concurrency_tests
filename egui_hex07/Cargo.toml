@@ -33,6 +33,7 @@ wasm-bindgen-rayon = { version = "1.3.0", features = ["no-bundler"] }
 web-sys = { version = "*", features = ["WorkerGlobalScope"] }
 parking_lot = { version = "*", features = ["nightly"] }
 futures-channel = "0.3.31"
+futures = "0.3.31"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

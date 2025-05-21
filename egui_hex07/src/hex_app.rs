@@ -4,7 +4,6 @@ use egui::{Color32, Context, RichText, Ui};
 use egui_extras::{Column, TableBody, TableBuilder, TableRow};
 use rand::Rng;
 use std::sync::{mpsc, Arc, Mutex};
-use rayon::prelude::*;
 
 #[derive(Debug, PartialEq)]
 enum WhichFile {
@@ -36,6 +35,7 @@ pub struct HexApp {
     diff_method: DiffMethod,
     //update_diffs_handle: Option<thread::JoinHandle<()>>,
     update_new_id_rx: Option<mpsc::Receiver<usize>>,
+    refresh_egui_tx: futures_channel::mpsc::UnboundedSender<()>,
     egui_context: Context,
 }
 
@@ -45,7 +45,10 @@ fn random_pattern() -> Vec<u8> {
 }
 
 impl HexApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        refresh_egui_tx: futures_channel::mpsc::UnboundedSender<()>,
+    ) -> Self {
         let mut result = Self {
             source_name0: Some("zeroes0".to_string()),
             source_name1: Some("zeroes1".to_string()),
@@ -58,6 +61,7 @@ impl HexApp {
             //update_diffs_handle: None,
             egui_context: cc.egui_ctx.clone(),
             update_new_id_rx: None,
+            refresh_egui_tx,
         };
 
         result.update_diffs();
@@ -87,6 +91,8 @@ impl HexApp {
         let (tx, rx) = mpsc::channel::<usize>();
         self.update_new_id_rx = Some(rx);
 
+        let refresh_egui_tx = self.refresh_egui_tx.clone();
+
         //self.update_diffs_handle = Some(thread::spawn(move || {
         rayon::spawn(move || {
             let pattern0 = pattern0.lock().unwrap();
@@ -100,7 +106,7 @@ impl HexApp {
                         DiffMethod::BpeGreedy00 => {
                             let f = |x| {
                                 tx.send(x).unwrap();
-                                egui_context.request_repaint();
+                                refresh_egui_tx.unbounded_send(()).unwrap();
                             };
                             println!("starting new_iterative");
                             let mut bpe = Bpe::new_iterative(&[pattern0, pattern1]);
@@ -108,7 +114,6 @@ impl HexApp {
                             while bpe.init_in_progress.is_some() {
                                 bpe.init_step(Some(f));
                                 //thread::yield_now();
-                                
                             }
 
                             let pattern0 = bpe.encode(pattern0);
@@ -131,8 +136,8 @@ impl HexApp {
                 *diffs1 = new_diffs1;
             }
             log::info!("finished updating diffs");
-            egui_context.request_repaint();
-        //}));
+            refresh_egui_tx.unbounded_send(()).unwrap();
+            //}));
         });
 
         rayon::yield_now();
