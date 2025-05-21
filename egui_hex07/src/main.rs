@@ -38,6 +38,14 @@ fn main() {
 
     let web_options = eframe::WebOptions::default();
 
+    let (refresh_egui_tx, mut refresh_egui_rx) = futures_channel::mpsc::unbounded::<()>();
+
+    wasm_bindgen_futures::spawn_local(async move {
+        while let Ok(Some(())) = refresh_egui_rx.try_next() {
+            log::info!("loop");
+        }
+    });
+
     wasm_bindgen_futures::spawn_local(async {
         // Initialize the thread pool with the maximum available threads
         let num_threads = get_num_threads();
@@ -45,12 +53,12 @@ fn main() {
         // Using then/catch pattern with a JsFuture since Promise doesn't implement Future
         let promise = egui_hex07::init_thread_pool(num_threads);
         let result = wasm_bindgen_futures::JsFuture::from(promise).await;
-        
+
         match result {
             Ok(_) => log::info!("Thread pool initialized with {} threads", num_threads),
             Err(e) => log::error!("Failed to initialize thread pool: {:?}", e),
         }
-        
+
         let document = web_sys::window()
             .expect("No window")
             .document()
@@ -96,11 +104,9 @@ fn get_num_threads() -> usize {
         #[wasm_bindgen(js_namespace = self)]
         fn navigator() -> JsValue;
     }
-    
+
     // Access the hardwareConcurrency property with web_sys
-    let nav = web_sys::window()
-        .expect("no window")
-        .navigator();
-    
+    let nav = web_sys::window().expect("no window").navigator();
+
     nav.hardware_concurrency() as usize
 }
