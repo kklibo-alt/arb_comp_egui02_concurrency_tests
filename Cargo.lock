@@ -998,7 +998,6 @@ dependencies = [
  "egui_extras",
  "env_logger",
  "futures",
- "futures-channel",
  "getrandom 0.2.16",
  "log",
  "parking_lot",
