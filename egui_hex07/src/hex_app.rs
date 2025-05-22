@@ -2,9 +2,9 @@ use crate::diff::{self, HexCell};
 use arb_comp06::{bpe::Bpe, matcher, test_utils};
 use egui::{Color32, Context, RichText, Ui};
 use egui_extras::{Column, TableBody, TableBuilder, TableRow};
+use futures::StreamExt as _;
 use rand::Rng;
 use std::sync::{mpsc, Arc, Mutex};
-use std::thread;
 
 #[derive(Debug, PartialEq)]
 enum WhichFile {
@@ -34,8 +34,9 @@ pub struct HexApp {
     diffs1: Arc<Mutex<Vec<HexCell>>>,
     file_drop_target: WhichFile,
     diff_method: DiffMethod,
-    update_diffs_handle: Option<thread::JoinHandle<()>>,
+    //update_diffs_handle: Option<thread::JoinHandle<()>>,
     update_new_id_rx: Option<mpsc::Receiver<usize>>,
+    refresh_egui_tx: futures_channel::mpsc::UnboundedSender<()>,
     egui_context: Context,
 }
 
@@ -45,7 +46,20 @@ fn random_pattern() -> Vec<u8> {
 }
 
 impl HexApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        refresh_egui_tx: futures_channel::mpsc::UnboundedSender<()>,
+    ) -> Self {
+        let (refresh_egui_tx, mut refresh_egui_rx) = futures_channel::mpsc::unbounded::<()>();
+        let egui_ctx = cc.egui_ctx.clone();
+
+        wasm_bindgen_futures::spawn_local(async move {
+            while let Some(()) = refresh_egui_rx.next().await {
+                //log::info!("loop2");
+                egui_ctx.request_repaint();
+            }
+        });
+
         let mut result = Self {
             source_name0: Some("zeroes0".to_string()),
             source_name1: Some("zeroes1".to_string()),
@@ -55,9 +69,10 @@ impl HexApp {
             diffs1: Arc::new(Mutex::new(vec![])),
             file_drop_target: WhichFile::File0,
             diff_method: DiffMethod::ByIndex,
-            update_diffs_handle: None,
+            //update_diffs_handle: None,
             egui_context: cc.egui_ctx.clone(),
             update_new_id_rx: None,
+            refresh_egui_tx,
         };
 
         result.update_diffs();
@@ -65,7 +80,7 @@ impl HexApp {
     }
 
     fn update_diffs(&mut self) {
-        if self.update_diffs_handle.is_some() {
+        /*if self.update_diffs_handle.is_some() {
             if let Some(handle) = self.update_diffs_handle.take_if(|x| x.is_finished()) {
                 handle.join().unwrap();
                 log::info!("update_diffs handle joined");
@@ -73,7 +88,7 @@ impl HexApp {
                 log::info!("update_diffs handle is not finished");
                 return;
             }
-        }
+        }*/
 
         let pattern0 = self.pattern0.clone();
         let pattern1 = self.pattern1.clone();
@@ -87,7 +102,10 @@ impl HexApp {
         let (tx, rx) = mpsc::channel::<usize>();
         self.update_new_id_rx = Some(rx);
 
-        self.update_diffs_handle = Some(thread::spawn(move || {
+        let refresh_egui_tx = self.refresh_egui_tx.clone();
+
+        //self.update_diffs_handle = Some(thread::spawn(move || {
+        rayon::spawn(move || {
             let pattern0 = pattern0.lock().unwrap();
             let pattern1 = pattern1.lock().unwrap();
 
@@ -99,13 +117,14 @@ impl HexApp {
                         DiffMethod::BpeGreedy00 => {
                             let f = |x| {
                                 tx.send(x).unwrap();
-                                egui_context.request_repaint();
+                                refresh_egui_tx.unbounded_send(()).unwrap();
                             };
                             println!("starting new_iterative");
                             let mut bpe = Bpe::new_iterative(&[pattern0, pattern1]);
                             println!("finished new_iterative");
                             while bpe.init_in_progress.is_some() {
                                 bpe.init_step(Some(f));
+                                //thread::yield_now();
                             }
 
                             let pattern0 = bpe.encode(pattern0);
@@ -128,8 +147,11 @@ impl HexApp {
                 *diffs1 = new_diffs1;
             }
             log::info!("finished updating diffs");
-            egui_context.request_repaint();
-        }));
+            refresh_egui_tx.unbounded_send(()).unwrap();
+            //}));
+        });
+
+        rayon::yield_now();
     }
 
     fn add_header_row(&mut self, mut header: TableRow<'_, '_>) {
