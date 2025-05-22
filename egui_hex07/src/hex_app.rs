@@ -2,8 +2,6 @@ use crate::diff::{self, HexCell};
 use arb_comp06::{bpe::Bpe, matcher, test_utils};
 use egui::{Color32, Context, RichText, Ui};
 use egui_extras::{Column, TableBody, TableBuilder, TableRow};
-#[cfg(target_arch = "wasm32")]
-use futures::StreamExt as _;
 use rand::Rng;
 use std::sync::{mpsc, Arc, Mutex};
 
@@ -37,8 +35,6 @@ pub struct HexApp {
     diff_method: DiffMethod,
     //update_diffs_handle: Option<thread::JoinHandle<()>>,
     update_new_id_rx: Option<mpsc::Receiver<usize>>,
-    #[cfg(target_arch = "wasm32")]
-    refresh_egui_tx: futures::channel::mpsc::UnboundedSender<()>,
     egui_context: Context,
 }
 
@@ -49,18 +45,6 @@ fn random_pattern() -> Vec<u8> {
 
 impl HexApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        #[cfg(target_arch = "wasm32")]
-        let (refresh_egui_tx, mut refresh_egui_rx) = futures::channel::mpsc::unbounded::<()>();
-        let egui_ctx = cc.egui_ctx.clone();
-
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(async move {
-            while let Some(()) = refresh_egui_rx.next().await {
-                //log::info!("loop2");
-                egui_ctx.request_repaint();
-            }
-        });
-
         let mut result = Self {
             source_name0: Some("zeroes0".to_string()),
             source_name1: Some("zeroes1".to_string()),
@@ -73,8 +57,6 @@ impl HexApp {
             //update_diffs_handle: None,
             egui_context: cc.egui_ctx.clone(),
             update_new_id_rx: None,
-            #[cfg(target_arch = "wasm32")]
-            refresh_egui_tx,
         };
 
         result.update_diffs();
@@ -105,12 +87,36 @@ impl HexApp {
         self.update_new_id_rx = Some(rx);
 
         #[cfg(target_arch = "wasm32")]
-        let refresh_egui_tx = self.refresh_egui_tx.clone();
+        // Spawn an async task to request egui repaints from the main thread.
+        // (When attempted from a Web Worker thread, the program panics.)
+        let refresh_egui_tx = {
+            use futures::{channel::mpsc, StreamExt as _};
+
+            let (tx, mut rx) = mpsc::unbounded::<()>();
+            let egui_context = self.egui_context.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                while let Some(()) = rx.next().await {
+                    egui_context.request_repaint();
+                }
+                log::info!("loop ENDED");
+            });
+
+            tx
+        };
 
         //self.update_diffs_handle = Some(thread::spawn(move || {
         rayon::spawn(move || {
             let pattern0 = pattern0.lock().unwrap();
             let pattern1 = pattern1.lock().unwrap();
+
+            let request_repaint = || {
+                #[cfg(target_arch = "wasm32")]
+                refresh_egui_tx.unbounded_send(()).unwrap();
+
+                #[cfg(not(target_arch = "wasm32"))]
+                egui_context.request_repaint();
+            };
 
             let (new_diffs0, new_diffs1) =
                 if let (Some(pattern0), Some(pattern1)) = (&*pattern0, &*pattern1) {
@@ -120,11 +126,7 @@ impl HexApp {
                         DiffMethod::BpeGreedy00 => {
                             let f = |x| {
                                 tx.send(x).unwrap();
-
-                                #[cfg(target_arch = "wasm32")]
-                                refresh_egui_tx.unbounded_send(()).unwrap();
-                                #[cfg(not(target_arch = "wasm32"))]
-                                egui_context.request_repaint();
+                                request_repaint();
                             };
                             println!("starting new_iterative");
                             let mut bpe = Bpe::new_iterative(&[pattern0, pattern1]);
@@ -155,10 +157,7 @@ impl HexApp {
             }
             log::info!("finished updating diffs");
 
-            #[cfg(target_arch = "wasm32")]
-            refresh_egui_tx.unbounded_send(()).unwrap();
-            #[cfg(not(target_arch = "wasm32"))]
-            egui_context.request_repaint();
+            request_repaint();
             //}));
         });
 
