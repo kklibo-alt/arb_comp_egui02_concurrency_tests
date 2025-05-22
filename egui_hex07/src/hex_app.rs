@@ -33,7 +33,6 @@ pub struct HexApp {
     diffs1: Arc<Mutex<Vec<HexCell>>>,
     file_drop_target: WhichFile,
     diff_method: DiffMethod,
-    //update_diffs_handle: Option<thread::JoinHandle<()>>,
     update_new_id_rx: Option<mpsc::Receiver<usize>>,
     egui_context: Context,
 }
@@ -54,9 +53,8 @@ impl HexApp {
             diffs1: Arc::new(Mutex::new(vec![])),
             file_drop_target: WhichFile::File0,
             diff_method: DiffMethod::ByIndex,
-            //update_diffs_handle: None,
-            egui_context: cc.egui_ctx.clone(),
             update_new_id_rx: None,
+            egui_context: cc.egui_ctx.clone(),
         };
 
         result.update_diffs();
@@ -64,16 +62,6 @@ impl HexApp {
     }
 
     fn update_diffs(&mut self) {
-        /*if self.update_diffs_handle.is_some() {
-            if let Some(handle) = self.update_diffs_handle.take_if(|x| x.is_finished()) {
-                handle.join().unwrap();
-                log::info!("update_diffs handle joined");
-            } else {
-                log::info!("update_diffs handle is not finished");
-                return;
-            }
-        }*/
-
         let pattern0 = self.pattern0.clone();
         let pattern1 = self.pattern1.clone();
 
@@ -105,7 +93,6 @@ impl HexApp {
             tx
         };
 
-        //self.update_diffs_handle = Some(thread::spawn(move || {
         rayon::spawn(move || {
             let pattern0 = pattern0.lock().unwrap();
             let pattern1 = pattern1.lock().unwrap();
@@ -133,7 +120,6 @@ impl HexApp {
                             println!("finished new_iterative");
                             while bpe.init_in_progress.is_some() {
                                 bpe.init_step(Some(f));
-                                //thread::yield_now();
                             }
 
                             let pattern0 = bpe.encode(pattern0);
@@ -158,7 +144,6 @@ impl HexApp {
             log::info!("finished updating diffs");
 
             request_repaint();
-            //}));
         });
 
         rayon::yield_now();
@@ -312,7 +297,6 @@ impl eframe::App for HexApp {
         let mut new_id = None;
         if let Some(rx) = &mut self.update_new_id_rx {
             for x in rx.try_iter() {
-                //println!("{x}");
                 new_id = Some(x);
             }
         }

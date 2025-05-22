@@ -4,7 +4,6 @@ var filesToCache = [
   './index.html',
   './egui_hex07.js',
   './egui_hex07_bg.wasm',
-  './egui_hex07.worker.js',
 ];
 
 /* Start the service worker and cache all of the app's content */
