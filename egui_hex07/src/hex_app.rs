@@ -2,6 +2,7 @@ use crate::diff::{self, HexCell};
 use arb_comp06::{bpe::Bpe, matcher, test_utils};
 use egui::{Color32, Context, RichText, Ui};
 use egui_extras::{Column, TableBody, TableBuilder, TableRow};
+#[cfg(target_arch = "wasm32")]
 use futures::StreamExt as _;
 use rand::Rng;
 use std::sync::{mpsc, Arc, Mutex};
@@ -36,7 +37,8 @@ pub struct HexApp {
     diff_method: DiffMethod,
     //update_diffs_handle: Option<thread::JoinHandle<()>>,
     update_new_id_rx: Option<mpsc::Receiver<usize>>,
-    refresh_egui_tx: futures_channel::mpsc::UnboundedSender<()>,
+    #[cfg(target_arch = "wasm32")]
+    refresh_egui_tx: futures::channel::mpsc::UnboundedSender<()>,
     egui_context: Context,
 }
 
@@ -46,13 +48,12 @@ fn random_pattern() -> Vec<u8> {
 }
 
 impl HexApp {
-    pub fn new(
-        cc: &eframe::CreationContext<'_>,
-        refresh_egui_tx: futures_channel::mpsc::UnboundedSender<()>,
-    ) -> Self {
-        let (refresh_egui_tx, mut refresh_egui_rx) = futures_channel::mpsc::unbounded::<()>();
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        let (refresh_egui_tx, mut refresh_egui_rx) = futures::channel::mpsc::unbounded::<()>();
         let egui_ctx = cc.egui_ctx.clone();
 
+        #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(async move {
             while let Some(()) = refresh_egui_rx.next().await {
                 //log::info!("loop2");
@@ -72,6 +73,7 @@ impl HexApp {
             //update_diffs_handle: None,
             egui_context: cc.egui_ctx.clone(),
             update_new_id_rx: None,
+            #[cfg(target_arch = "wasm32")]
             refresh_egui_tx,
         };
 
@@ -102,6 +104,7 @@ impl HexApp {
         let (tx, rx) = mpsc::channel::<usize>();
         self.update_new_id_rx = Some(rx);
 
+        #[cfg(target_arch = "wasm32")]
         let refresh_egui_tx = self.refresh_egui_tx.clone();
 
         //self.update_diffs_handle = Some(thread::spawn(move || {
@@ -117,7 +120,11 @@ impl HexApp {
                         DiffMethod::BpeGreedy00 => {
                             let f = |x| {
                                 tx.send(x).unwrap();
+
+                                #[cfg(target_arch = "wasm32")]
                                 refresh_egui_tx.unbounded_send(()).unwrap();
+                                #[cfg(not(target_arch = "wasm32"))]
+                                egui_context.request_repaint();
                             };
                             println!("starting new_iterative");
                             let mut bpe = Bpe::new_iterative(&[pattern0, pattern1]);
@@ -147,7 +154,11 @@ impl HexApp {
                 *diffs1 = new_diffs1;
             }
             log::info!("finished updating diffs");
+
+            #[cfg(target_arch = "wasm32")]
             refresh_egui_tx.unbounded_send(()).unwrap();
+            #[cfg(not(target_arch = "wasm32"))]
+            egui_context.request_repaint();
             //}));
         });
 
