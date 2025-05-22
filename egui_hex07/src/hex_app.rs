@@ -46,12 +46,10 @@ fn random_pattern() -> Vec<u8> {
 }
 
 impl HexApp {
-    pub fn new(
-        cc: &eframe::CreationContext<'_>,
-    ) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let (refresh_egui_tx, mut refresh_egui_rx) = futures_channel::mpsc::unbounded::<()>();
         let egui_ctx = cc.egui_ctx.clone();
-        
+
         #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(async move {
             while let Some(()) = refresh_egui_rx.next().await {
@@ -117,7 +115,7 @@ impl HexApp {
                         DiffMethod::BpeGreedy00 => {
                             let f = |x| {
                                 tx.send(x).unwrap();
-                                
+
                                 #[cfg(target_arch = "wasm32")]
                                 refresh_egui_tx.unbounded_send(()).unwrap();
                                 #[cfg(not(target_arch = "wasm32"))]

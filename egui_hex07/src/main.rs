@@ -32,20 +32,11 @@ fn main() -> eframe::Result {
 #[cfg(target_arch = "wasm32")]
 fn main() {
     use eframe::wasm_bindgen::JsCast as _;
-    use futures::StreamExt as _;
 
     // Redirect `log` message to `console.log` and friends:
     eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
     let web_options = eframe::WebOptions::default();
-
-    let (refresh_egui_tx, mut refresh_egui_rx) = futures_channel::mpsc::unbounded::<()>();
-
-    wasm_bindgen_futures::spawn_local(async move {
-        while let Some(()) = refresh_egui_rx.next().await {
-            log::info!("loop");
-        }
-    });
 
     wasm_bindgen_futures::spawn_local(async {
         // Initialize the thread pool with the maximum available threads
@@ -75,7 +66,7 @@ fn main() {
             .start(
                 canvas,
                 web_options,
-                Box::new(|cc| Ok(Box::new(egui_hex07::HexApp::new(cc, refresh_egui_tx)))),
+                Box::new(|cc| Ok(Box::new(egui_hex07::HexApp::new(cc)))),
             )
             .await;
 
