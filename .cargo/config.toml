@@ -2,4 +2,4 @@
 rustflags = ["-C", "target-feature=+atomics,+bulk-memory", "--cfg=web_sys_unstable_apis"]
 
 [unstable]
-build-std = ["panic_abort", "std"] 
+#build-std = ["panic_abort", "std"] 
