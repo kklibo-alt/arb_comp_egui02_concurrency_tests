@@ -3,7 +3,10 @@ use arb_comp06::{bpe::Bpe, matcher, test_utils};
 use egui::{Color32, Context, RichText, Ui};
 use egui_extras::{Column, TableBody, TableBuilder, TableRow};
 use rand::Rng;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc, Mutex,
+};
 
 #[derive(Debug, PartialEq)]
 enum WhichFile {
@@ -35,6 +38,8 @@ pub struct HexApp {
     diff_method: DiffMethod,
     update_new_id_rx: Option<mpsc::Receiver<usize>>,
     egui_context: Context,
+    job_running: Arc<AtomicBool>,
+    cancel_job: Arc<AtomicBool>,
 }
 
 fn random_pattern() -> Vec<u8> {
@@ -55,6 +60,8 @@ impl HexApp {
             diff_method: DiffMethod::ByIndex,
             update_new_id_rx: None,
             egui_context: cc.egui_ctx.clone(),
+            job_running: Arc::new(AtomicBool::new(false)),
+            cancel_job: Arc::new(AtomicBool::new(false)),
         };
 
         result.update_diffs();
@@ -62,6 +69,11 @@ impl HexApp {
     }
 
     fn update_diffs(&mut self) {
+        if self.job_running.load(Ordering::Acquire) {
+            return;
+        }
+        self.job_running.store(true, Ordering::Release);
+
         let pattern0 = self.pattern0.clone();
         let pattern1 = self.pattern1.clone();
 
@@ -146,10 +158,12 @@ impl HexApp {
             request_repaint();
         };
 
+        let job_running = self.job_running.clone();
         rayon::spawn(move || {
             rayon::scope(|s| {
                 s.spawn(worker);
             });
+            job_running.store(false, Ordering::Release);
         });
     }
 
