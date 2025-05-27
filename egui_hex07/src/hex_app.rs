@@ -93,65 +93,64 @@ impl HexApp {
             tx
         };
 
+        let worker = move |_s: &rayon::Scope<'_>| {
+            let pattern0 = pattern0.lock().unwrap();
+            let pattern1 = pattern1.lock().unwrap();
+
+            let request_repaint = || {
+                #[cfg(target_arch = "wasm32")]
+                refresh_egui_tx.unbounded_send(()).unwrap();
+
+                #[cfg(not(target_arch = "wasm32"))]
+                egui_context.request_repaint();
+            };
+
+            let (new_diffs0, new_diffs1) =
+                if let (Some(pattern0), Some(pattern1)) = (&*pattern0, &*pattern1) {
+                    let len = std::cmp::max(pattern0.len(), pattern1.len());
+                    match diff_method {
+                        DiffMethod::ByIndex => diff::get_diffs(pattern0, pattern1, 0..len),
+                        DiffMethod::BpeGreedy00 => {
+                            let f = |x| {
+                                tx.send(x).unwrap();
+                                request_repaint();
+                            };
+                            println!("starting new_iterative");
+                            let mut bpe = Bpe::new_iterative(&[pattern0, pattern1]);
+                            println!("finished new_iterative");
+                            while bpe.init_in_progress.is_some() {
+                                bpe.init_step(Some(f));
+                            }
+
+                            let pattern0 = bpe.encode(pattern0);
+                            let pattern1 = bpe.encode(pattern1);
+
+                            let matches = matcher::greedy00(&pattern0, &pattern1);
+                            test_utils::matches_to_cells(&matches, |x| bpe.decode(x.clone()))
+                        }
+                    }
+                } else {
+                    (vec![], vec![])
+                };
+            log::info!("started updating diffs");
+            {
+                let mut diffs0 = diffs0.lock().unwrap();
+                *diffs0 = new_diffs0;
+            }
+            {
+                let mut diffs1 = diffs1.lock().unwrap();
+                *diffs1 = new_diffs1;
+            }
+            log::info!("finished updating diffs");
+
+            request_repaint();
+        };
+
         rayon::spawn(move || {
             rayon::scope(|s| {
-                s.spawn(move |_s| {
-                    let pattern0 = pattern0.lock().unwrap();
-                    let pattern1 = pattern1.lock().unwrap();
-
-                    let request_repaint = || {
-                        #[cfg(target_arch = "wasm32")]
-                        refresh_egui_tx.unbounded_send(()).unwrap();
-
-                        #[cfg(not(target_arch = "wasm32"))]
-                        egui_context.request_repaint();
-                    };
-
-                    let (new_diffs0, new_diffs1) = if let (Some(pattern0), Some(pattern1)) =
-                        (&*pattern0, &*pattern1)
-                    {
-                        let len = std::cmp::max(pattern0.len(), pattern1.len());
-                        match diff_method {
-                            DiffMethod::ByIndex => diff::get_diffs(pattern0, pattern1, 0..len),
-                            DiffMethod::BpeGreedy00 => {
-                                let f = |x| {
-                                    tx.send(x).unwrap();
-                                    request_repaint();
-                                };
-                                println!("starting new_iterative");
-                                let mut bpe = Bpe::new_iterative(&[pattern0, pattern1]);
-                                println!("finished new_iterative");
-                                while bpe.init_in_progress.is_some() {
-                                    bpe.init_step(Some(f));
-                                }
-
-                                let pattern0 = bpe.encode(pattern0);
-                                let pattern1 = bpe.encode(pattern1);
-
-                                let matches = matcher::greedy00(&pattern0, &pattern1);
-                                test_utils::matches_to_cells(&matches, |x| bpe.decode(x.clone()))
-                            }
-                        }
-                    } else {
-                        (vec![], vec![])
-                    };
-                    log::info!("started updating diffs");
-                    {
-                        let mut diffs0 = diffs0.lock().unwrap();
-                        *diffs0 = new_diffs0;
-                    }
-                    {
-                        let mut diffs1 = diffs1.lock().unwrap();
-                        *diffs1 = new_diffs1;
-                    }
-                    log::info!("finished updating diffs");
-
-                    request_repaint();
-                });
+                s.spawn(worker);
             });
         });
-
-        rayon::yield_now();
     }
 
     fn add_header_row(&mut self, mut header: TableRow<'_, '_>) {
