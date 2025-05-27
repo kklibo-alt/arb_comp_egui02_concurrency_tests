@@ -68,6 +68,25 @@ impl HexApp {
         result
     }
 
+    fn try_set_pattern0(&mut self, pattern: Vec<u8>) -> bool {
+        if self.job_running.load(Ordering::Acquire) {
+            false
+        } else {
+            let mut pattern0 = self.pattern0.lock().unwrap();
+            *pattern0 = Some(pattern);
+            true
+        }
+    }
+    fn try_set_pattern1(&mut self, pattern: Vec<u8>) -> bool {
+        if self.job_running.load(Ordering::Acquire) {
+            false
+        } else {
+            let mut pattern1 = self.pattern1.lock().unwrap();
+            *pattern1 = Some(pattern);
+            true
+        }
+    }
+
     fn update_diffs(&mut self) {
         if self.job_running.load(Ordering::Acquire) {
             return;
@@ -181,12 +200,10 @@ impl HexApp {
                     ui.selectable_value(&mut self.file_drop_target, WhichFile::File0, text)
                         .highlight();
                     if ui.button("randomize").clicked() {
-                        {
-                            let mut pattern0 = self.pattern0.lock().unwrap();
-                            *pattern0 = Some(random_pattern());
+                        if self.try_set_pattern0(random_pattern()) {
+                            self.source_name0 = Some("random".to_string());
+                            self.update_diffs();
                         }
-                        self.source_name0 = Some("random".to_string());
-                        self.update_diffs();
                     }
                 });
             });
@@ -200,12 +217,10 @@ impl HexApp {
                     ui.selectable_value(&mut self.file_drop_target, WhichFile::File1, text)
                         .highlight();
                     if ui.button("randomize").clicked() {
-                        {
-                            let mut pattern1 = self.pattern1.lock().unwrap();
-                            *pattern1 = Some(random_pattern());
+                        if self.try_set_pattern1(random_pattern()) {
+                            self.source_name1 = Some("random".to_string());
+                            self.update_diffs();
                         }
-                        self.source_name1 = Some("random".to_string());
-                        self.update_diffs();
                     }
                 });
             });
@@ -323,45 +338,35 @@ impl eframe::App for HexApp {
             if let Some(dropped_file) = i.raw.dropped_files.first() {
                 // This should only be Some when running as a native app.
                 if let Some(path) = &dropped_file.path {
-                    match self.file_drop_target {
-                        WhichFile::File0 => {
-                            self.source_name0 = Some(path.to_string_lossy().to_string());
-                            {
-                                let mut pattern0 = self.pattern0.lock().unwrap();
-                                *pattern0 = std::fs::read(path).ok();
-                                if pattern0.is_none() {
-                                    log::error!("failed to read file: {:?}", path);
+                    if let Some(pattern) = std::fs::read(path).ok() {
+                        match self.file_drop_target {
+                            WhichFile::File0 => {
+                                if self.try_set_pattern0(pattern) {
+                                    self.source_name0 = Some(path.to_string_lossy().to_string());
+                                }
+                            }
+                            WhichFile::File1 => {
+                                if self.try_set_pattern1(pattern) {
+                                    self.source_name1 = Some(path.to_string_lossy().to_string());
                                 }
                             }
                         }
-                        WhichFile::File1 => {
-                            self.source_name1 = Some(path.to_string_lossy().to_string());
-                            {
-                                let mut pattern1 = self.pattern1.lock().unwrap();
-                                *pattern1 = std::fs::read(path).ok();
-                                if pattern1.is_none() {
-                                    log::error!("failed to read file: {:?}", path);
-                                }
-                            }
-                        }
+                    } else {
+                        log::error!("failed to read file: {:?}", path);
                     }
                 }
                 // This should only be Some when running as a web app.
                 else if let Some(bytes) = &dropped_file.bytes {
                     match self.file_drop_target {
                         WhichFile::File0 => {
-                            {
-                                let mut pattern0 = self.pattern0.lock().unwrap();
-                                *pattern0 = Some(bytes.to_vec());
+                            if self.try_set_pattern0(bytes.to_vec()) {
+                                self.source_name0 = Some(dropped_file.name.clone());
                             }
-                            self.source_name0 = Some(dropped_file.name.clone());
                         }
                         WhichFile::File1 => {
-                            {
-                                let mut pattern1 = self.pattern1.lock().unwrap();
-                                *pattern1 = Some(bytes.to_vec());
+                            if self.try_set_pattern1(bytes.to_vec()) {
+                                self.source_name1 = Some(dropped_file.name.clone());
                             }
-                            self.source_name1 = Some(dropped_file.name.clone());
                         }
                     }
                 }
