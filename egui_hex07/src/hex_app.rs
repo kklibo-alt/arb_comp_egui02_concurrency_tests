@@ -249,8 +249,17 @@ impl HexApp {
             )
         }
 
-        let diffs0 = self.diffs0.lock().unwrap();
-        let diffs1 = self.diffs1.lock().unwrap();
+        let diffs0 = if let Ok(diffs0) = self.diffs0.try_lock() {
+            diffs0
+        } else {
+            return;
+        };
+
+        let diffs1 = if let Ok(diffs1) = self.diffs1.try_lock() {
+            diffs1
+        } else {
+            return;
+        };
 
         let hex_grid_width = 16;
 
