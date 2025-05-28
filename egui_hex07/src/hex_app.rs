@@ -3,7 +3,10 @@ use arb_comp06::{bpe::Bpe, matcher, test_utils};
 use egui::{Color32, Context, RichText, Ui};
 use egui_extras::{Column, TableBody, TableBuilder, TableRow};
 use rand::Rng;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc, Mutex,
+};
 
 #[derive(Debug, PartialEq)]
 enum WhichFile {
@@ -35,6 +38,8 @@ pub struct HexApp {
     diff_method: DiffMethod,
     update_new_id_rx: Option<mpsc::Receiver<usize>>,
     egui_context: Context,
+    job_running: Arc<AtomicBool>,
+    cancel_job: Arc<AtomicBool>,
 }
 
 fn random_pattern() -> Vec<u8> {
@@ -55,13 +60,39 @@ impl HexApp {
             diff_method: DiffMethod::ByIndex,
             update_new_id_rx: None,
             egui_context: cc.egui_ctx.clone(),
+            job_running: Arc::new(AtomicBool::new(false)),
+            cancel_job: Arc::new(AtomicBool::new(false)),
         };
 
         result.update_diffs();
         result
     }
 
+    fn try_set_pattern0(&mut self, pattern: Vec<u8>) -> bool {
+        if self.job_running.load(Ordering::Acquire) {
+            false
+        } else {
+            let mut pattern0 = self.pattern0.lock().unwrap();
+            *pattern0 = Some(pattern);
+            true
+        }
+    }
+    fn try_set_pattern1(&mut self, pattern: Vec<u8>) -> bool {
+        if self.job_running.load(Ordering::Acquire) {
+            false
+        } else {
+            let mut pattern1 = self.pattern1.lock().unwrap();
+            *pattern1 = Some(pattern);
+            true
+        }
+    }
+
     fn update_diffs(&mut self) {
+        if self.job_running.load(Ordering::Acquire) {
+            return;
+        }
+        self.job_running.store(true, Ordering::Release);
+
         let pattern0 = self.pattern0.clone();
         let pattern1 = self.pattern1.clone();
 
@@ -88,12 +119,15 @@ impl HexApp {
                     egui_context.request_repaint();
                 }
                 log::info!("loop ENDED");
+                // One more repaint after the last worker thread finishes.
+                egui_context.request_repaint();
             });
 
             tx
         };
 
-        rayon::spawn(move || {
+        let cancel_job = self.cancel_job.clone();
+        let worker = move |_s: &rayon::Scope<'_>| {
             let pattern0 = pattern0.lock().unwrap();
             let pattern1 = pattern1.lock().unwrap();
 
@@ -120,6 +154,10 @@ impl HexApp {
                             println!("finished new_iterative");
                             while bpe.init_in_progress.is_some() {
                                 bpe.init_step(Some(f));
+
+                                if cancel_job.load(Ordering::Acquire) {
+                                    return;
+                                }
                             }
 
                             let pattern0 = bpe.encode(pattern0);
@@ -144,9 +182,17 @@ impl HexApp {
             log::info!("finished updating diffs");
 
             request_repaint();
-        });
+        };
 
-        rayon::yield_now();
+        let job_running = self.job_running.clone();
+        let cancel_job = self.cancel_job.clone();
+        rayon::spawn(move || {
+            rayon::scope(|s| {
+                s.spawn(worker);
+            });
+            job_running.store(false, Ordering::Release);
+            cancel_job.store(false, Ordering::Release);
+        });
     }
 
     fn add_header_row(&mut self, mut header: TableRow<'_, '_>) {
@@ -163,12 +209,10 @@ impl HexApp {
                     ui.selectable_value(&mut self.file_drop_target, WhichFile::File0, text)
                         .highlight();
                     if ui.button("randomize").clicked() {
-                        {
-                            let mut pattern0 = self.pattern0.lock().unwrap();
-                            *pattern0 = Some(random_pattern());
+                        if self.try_set_pattern0(random_pattern()) {
+                            self.source_name0 = Some("random".to_string());
+                            self.update_diffs();
                         }
-                        self.source_name0 = Some("random".to_string());
-                        self.update_diffs();
                     }
                 });
             });
@@ -182,12 +226,10 @@ impl HexApp {
                     ui.selectable_value(&mut self.file_drop_target, WhichFile::File1, text)
                         .highlight();
                     if ui.button("randomize").clicked() {
-                        {
-                            let mut pattern1 = self.pattern1.lock().unwrap();
-                            *pattern1 = Some(random_pattern());
+                        if self.try_set_pattern1(random_pattern()) {
+                            self.source_name1 = Some("random".to_string());
+                            self.update_diffs();
                         }
-                        self.source_name1 = Some("random".to_string());
-                        self.update_diffs();
                     }
                 });
             });
@@ -216,8 +258,17 @@ impl HexApp {
             )
         }
 
-        let diffs0 = self.diffs0.lock().unwrap();
-        let diffs1 = self.diffs1.lock().unwrap();
+        let diffs0 = if let Ok(diffs0) = self.diffs0.try_lock() {
+            diffs0
+        } else {
+            return;
+        };
+
+        let diffs1 = if let Ok(diffs1) = self.diffs1.try_lock() {
+            diffs1
+        } else {
+            return;
+        };
 
         let hex_grid_width = 16;
 
@@ -305,45 +356,35 @@ impl eframe::App for HexApp {
             if let Some(dropped_file) = i.raw.dropped_files.first() {
                 // This should only be Some when running as a native app.
                 if let Some(path) = &dropped_file.path {
-                    match self.file_drop_target {
-                        WhichFile::File0 => {
-                            self.source_name0 = Some(path.to_string_lossy().to_string());
-                            {
-                                let mut pattern0 = self.pattern0.lock().unwrap();
-                                *pattern0 = std::fs::read(path).ok();
-                                if pattern0.is_none() {
-                                    log::error!("failed to read file: {:?}", path);
+                    if let Some(pattern) = std::fs::read(path).ok() {
+                        match self.file_drop_target {
+                            WhichFile::File0 => {
+                                if self.try_set_pattern0(pattern) {
+                                    self.source_name0 = Some(path.to_string_lossy().to_string());
+                                }
+                            }
+                            WhichFile::File1 => {
+                                if self.try_set_pattern1(pattern) {
+                                    self.source_name1 = Some(path.to_string_lossy().to_string());
                                 }
                             }
                         }
-                        WhichFile::File1 => {
-                            self.source_name1 = Some(path.to_string_lossy().to_string());
-                            {
-                                let mut pattern1 = self.pattern1.lock().unwrap();
-                                *pattern1 = std::fs::read(path).ok();
-                                if pattern1.is_none() {
-                                    log::error!("failed to read file: {:?}", path);
-                                }
-                            }
-                        }
+                    } else {
+                        log::error!("failed to read file: {:?}", path);
                     }
                 }
                 // This should only be Some when running as a web app.
                 else if let Some(bytes) = &dropped_file.bytes {
                     match self.file_drop_target {
                         WhichFile::File0 => {
-                            {
-                                let mut pattern0 = self.pattern0.lock().unwrap();
-                                *pattern0 = Some(bytes.to_vec());
+                            if self.try_set_pattern0(bytes.to_vec()) {
+                                self.source_name0 = Some(dropped_file.name.clone());
                             }
-                            self.source_name0 = Some(dropped_file.name.clone());
                         }
                         WhichFile::File1 => {
-                            {
-                                let mut pattern1 = self.pattern1.lock().unwrap();
-                                *pattern1 = Some(bytes.to_vec());
+                            if self.try_set_pattern1(bytes.to_vec()) {
+                                self.source_name1 = Some(dropped_file.name.clone());
                             }
-                            self.source_name1 = Some(dropped_file.name.clone());
                         }
                     }
                 }
@@ -369,6 +410,16 @@ impl eframe::App for HexApp {
                     .clicked()
                 {
                     self.update_diffs();
+                }
+
+                if ui
+                    .add_enabled(
+                        self.job_running.load(Ordering::Acquire),
+                        egui::Button::new("cancel"),
+                    )
+                    .clicked()
+                {
+                    self.cancel_job.store(true, Ordering::Release);
                 }
 
                 //display the new id
