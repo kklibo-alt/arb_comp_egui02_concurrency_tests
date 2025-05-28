@@ -119,11 +119,14 @@ impl HexApp {
                     egui_context.request_repaint();
                 }
                 log::info!("loop ENDED");
+                // One more repaint after the last worker thread finishes.
+                egui_context.request_repaint();
             });
 
             tx
         };
 
+        let cancel_job = self.cancel_job.clone();
         let worker = move |_s: &rayon::Scope<'_>| {
             let pattern0 = pattern0.lock().unwrap();
             let pattern1 = pattern1.lock().unwrap();
@@ -151,6 +154,10 @@ impl HexApp {
                             println!("finished new_iterative");
                             while bpe.init_in_progress.is_some() {
                                 bpe.init_step(Some(f));
+
+                                if cancel_job.load(Ordering::Acquire) {
+                                    return;
+                                }
                             }
 
                             let pattern0 = bpe.encode(pattern0);
@@ -178,11 +185,13 @@ impl HexApp {
         };
 
         let job_running = self.job_running.clone();
+        let cancel_job = self.cancel_job.clone();
         rayon::spawn(move || {
             rayon::scope(|s| {
                 s.spawn(worker);
             });
             job_running.store(false, Ordering::Release);
+            cancel_job.store(false, Ordering::Release);
         });
     }
 
@@ -403,7 +412,15 @@ impl eframe::App for HexApp {
                     self.update_diffs();
                 }
 
-                if ui.add_enabled(false, egui::Button::new("cancel")).clicked() {}
+                if ui
+                    .add_enabled(
+                        self.job_running.load(Ordering::Acquire),
+                        egui::Button::new("cancel"),
+                    )
+                    .clicked()
+                {
+                    self.cancel_job.store(true, Ordering::Release);
+                }
 
                 //display the new id
                 ui.label(RichText::new(format!("new id: {new_id:?}")));
